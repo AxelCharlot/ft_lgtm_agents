@@ -1,0 +1,12 @@
+# The allowed list the tests run against. It covers the four faults of the chaos catalogue.
+paths:
+  - k8s/*.yaml
+fields:
+  - kind: Deployment
+    path: spec.template.spec.containers[*].resources.limits.memory
+  - kind: Deployment
+    path: spec.template.spec.containers[*].readinessProbe
+  - kind: Deployment
+    path: spec.template.spec.containers[*].env[name=OTEL_SERVICE_NAME].value
+  - kind: NetworkPolicy
+    path: spec.egress
