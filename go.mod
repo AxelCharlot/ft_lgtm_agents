@@ -2,7 +2,10 @@ module github.com/AxelCharlot/ft_lgtm_agents
 
 go 1.25.0
 
-require github.com/AxelCharlot/ft_lgtm v0.0.0-20260922093546-86ddec211d00
+require (
+	github.com/AxelCharlot/ft_lgtm v0.0.0-20260922093546-86ddec211d00
+	go.yaml.in/yaml/v3 v3.0.5
+)
 
 require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
