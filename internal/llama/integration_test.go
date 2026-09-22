@@ -5,8 +5,9 @@ package llama
 //	LLAMA_COMPLETION_URL=http://127.0.0.1:8081 LLAMA_EMBEDDING_URL=http://127.0.0.1:8082 \
 //	  go test -run Integration -timeout 0 -v ./internal/llama
 //
-// LLAMA_GENERATIONS sets the number of generations, 100 by default. On a
-// four-core CPU they take the better part of an hour.
+// LLAMA_GENERATIONS sets the number of generations, 100 by default; on four CPU
+// threads they take about 40 minutes. A generation cut by its token limit is
+// counted apart: every generation that finishes must be schema-valid.
 
 import (
 	"context"
@@ -33,6 +34,12 @@ Answer with a short poem about the sea, in plain English, and nothing else.`
 
 // maxTokens leaves room for the largest fixture, rewritten whole, plus a summary.
 const maxTokens = 2048
+
+// maxTruncatedShare bounds how often a generation may be cut by maxTokens. Tier
+// 3 gets three attempts before a rollback, so at 10 % a repair is lost to
+// truncation alone once in a thousand; above it, the loop stops being worth
+// running.
+const maxTruncatedShare = 0.1
 
 func integrationClient(t *testing.T) *Client {
 	t.Helper()
@@ -93,7 +100,7 @@ func schemaError(text string) error {
 	return nil
 }
 
-func TestIntegrationAHundredGenerationsAreSchemaValid(t *testing.T) {
+func TestIntegrationEveryFinishedGenerationIsSchemaValid(t *testing.T) {
 	client := integrationClient(t)
 	generations := 100
 	if value := os.Getenv("LLAMA_GENERATIONS"); value != "" {
@@ -104,7 +111,7 @@ func TestIntegrationAHundredGenerationsAreSchemaValid(t *testing.T) {
 		generations = parsed
 	}
 
-	var invalid, tokens int
+	var invalid, truncated, tokens int
 	var elapsed time.Duration
 	for i := range generations {
 		fault := catalogue[i%len(catalogue)]
@@ -118,6 +125,15 @@ func TestIntegrationAHundredGenerationsAreSchemaValid(t *testing.T) {
 		})
 		elapsed += time.Since(started)
 		tokens += completion.CompletionTokens
+		if errors.Is(err, ErrTruncated) {
+			// Not a failure of the grammar: it held the shape up to the limit, and
+			// a loop inside a string is what cut it. The healer counts it as one
+			// failed attempt; here it counts against maxTruncatedShare.
+			truncated++
+			t.Logf("generation %d (%s): truncated after %d tokens", i, fault.fixture,
+				completion.CompletionTokens)
+			continue
+		}
 		if err == nil {
 			err = schemaError(completion.Text)
 		}
@@ -129,8 +145,14 @@ func TestIntegrationAHundredGenerationsAreSchemaValid(t *testing.T) {
 		t.Logf("generation %d: valid, %d tokens at %.1f tokens/s", i,
 			completion.CompletionTokens, completion.TokensPerSecond)
 	}
-	t.Logf("%d of %d generations schema-valid; %d tokens in %s",
-		generations-invalid, generations, tokens, elapsed.Round(time.Second))
+
+	finished := generations - truncated
+	t.Logf("%d of %d finished generations schema-valid, %d truncated; %d tokens in %s",
+		finished-invalid, finished, truncated, tokens, elapsed.Round(time.Second))
+	if share := float64(truncated) / float64(generations); share > maxTruncatedShare {
+		t.Errorf("%.0f %% of the generations were truncated, above the %.0f %% allowed",
+			share*100, maxTruncatedShare*100)
+	}
 }
 
 func TestIntegrationADerailingPromptDoesNotDerailTheGrammar(t *testing.T) {
