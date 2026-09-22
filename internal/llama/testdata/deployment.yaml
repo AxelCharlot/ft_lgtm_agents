@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lgtm-backend
+  namespace: lgtm
+  labels:
+    app: lgtm-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lgtm-backend
+  template:
+    metadata:
+      labels:
+        app: lgtm-backend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: backend
+          image: lgtm/backend:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: lgtm-backend
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.lgtm.svc.cluster.local:4317
+            - name: OTEL_METRICS_EXEMPLAR_FILTER
+              value: trace_based
+            - name: IPFS_API_URL
+              value: http://kubo.lgtm.svc.cluster.local:5001
+            - name: IPFS_GATEWAY_URL
+              value: http://ipfs.lgtm.local
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 512Mi
