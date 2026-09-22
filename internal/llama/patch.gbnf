@@ -1,0 +1,25 @@
+# The patch schema of internal/patch, as a GBNF grammar: at every token, llama-server
+# removes whatever could not lead to an object of this shape.
+#
+# It encodes what a grammar can: the keys and their order, 1 to 3 files (patch.MaxFiles),
+# "replace" as the only op, a summary that does not start blank. What it cannot encode —
+# which paths and fields a patch may touch — patch.Check refuses afterwards.
+
+root    ::= "{" ws "\"summary\"" ws ":" ws summary ws "," ws "\"files\"" ws ":" ws files ws "}"
+
+summary ::= "\"" first char{0,199} "\""
+files   ::= "[" ws file ( ws "," ws file ){0,2} ws "]"
+# In GBNF a newline ends a rule, except inside parentheses.
+file    ::= ( "{" ws "\"path\"" ws ":" ws path ws "," ws
+              "\"op\"" ws ":" ws "\"replace\"" ws "," ws
+              "\"content\"" ws ":" ws string ws "}" )
+
+# A path of ft_lgtm_gitops needs none of the characters JSON would have to escape.
+path    ::= "\"" [a-zA-Z0-9._/-]{1,200} "\""
+string  ::= "\"" char* "\""
+first   ::= [^"\\\x00-\x20] | escape
+char    ::= [^"\\\x00-\x1F] | escape
+escape  ::= "\\" ( ["\\/bfnrt] | "u" [0-9a-fA-F]{4} )
+
+# Bounded, because a constrained model that hesitates emits whitespace forever.
+ws      ::= [ \t\n]{0,20}
